@@ -364,6 +364,71 @@
             font-size: 0.9em;
         }
 
+        .fullscreen-alert {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, rgba(138, 43, 226, 0.98), rgba(0, 0, 0, 0.98));
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 3000;
+            animation: alertPulse 1s ease-in-out infinite;
+        }
+
+        @keyframes alertPulse {
+            0%, 100% { opacity: 0.95; }
+            50% { opacity: 1; }
+        }
+
+        .fullscreen-alert.show {
+            display: flex;
+        }
+
+        .alert-content {
+            text-align: center;
+            padding: 40px;
+            max-width: 500px;
+        }
+
+        .alert-content .hero-large {
+            font-size: 8em;
+            animation: bounce 1s ease-in-out infinite;
+        }
+
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-20px); }
+        }
+
+        .alert-content h2 {
+            font-size: 2.5em;
+            color: #fff;
+            margin: 20px 0;
+            text-shadow: 0 0 20px rgba(255, 255, 255, 0.8);
+        }
+
+        .alert-content p {
+            font-size: 1.5em;
+            color: #c4b5fd;
+            margin-bottom: 30px;
+        }
+
+        .dismiss-btn {
+            background: linear-gradient(135deg, #ff00ff, #8a2be2);
+            padding: 20px 50px;
+            font-size: 1.3em;
+            border-radius: 15px;
+            animation: glow 1.5s ease-in-out infinite;
+        }
+
+        @keyframes glow {
+            0%, 100% { box-shadow: 0 0 20px rgba(138, 43, 226, 0.5); }
+            50% { box-shadow: 0 0 40px rgba(255, 0, 255, 0.8); }
+        }
+
         .hero-icon {
             font-size: 3em;
             margin-bottom: 10px;
@@ -542,6 +607,15 @@
         <p id="notificationMessage"></p>
     </div>
 
+    <div class="fullscreen-alert" id="fullscreenAlert">
+        <div class="alert-content">
+            <div class="hero-large" id="alertHero">🦇</div>
+            <h2 id="alertTitle">WATER ALERT!</h2>
+            <p id="alertMessage">30 minutes passed! Time to hydrate, hero!</p>
+            <button class="dismiss-btn" onclick="dismissAlert()">I'll Drink Now! 💧</button>
+        </div>
+    </div>
+
     <div class="footer">
         All Rights Reserved to Hrithik
     </div>
@@ -560,6 +634,8 @@
         let lastWaterTime = Date.now();
         let isLoggedIn = false;
         let notificationsEnabled = false;
+        let audioContext;
+        let wakeLock = null;
 
         const heroMessages = [
             { hero: "🦇 Batman", message: "Time to hydrate, hero! Even the Dark Knight needs water." },
@@ -569,6 +645,86 @@
             { hero: "🦇 Batman", message: "Gotham needs you healthy. Time for a meal!" },
             { hero: "🕷️ Spider-Man", message: "Web-slinging requires energy! Have you eaten?" }
         ];
+
+        // Initialize audio context for iOS
+        function initAudio() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        // Play alert sound
+        function playAlertSound() {
+            initAudio();
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.value = 800;
+            oscillator.type = 'sine';
+            
+            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.5);
+            
+            // Play multiple beeps
+            setTimeout(() => {
+                const osc2 = audioContext.createOscillator();
+                const gain2 = audioContext.createGain();
+                osc2.connect(gain2);
+                gain2.connect(audioContext.destination);
+                osc2.frequency.value = 1000;
+                osc2.type = 'sine';
+                gain2.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gain2.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+                osc2.start(audioContext.currentTime);
+                osc2.stop(audioContext.currentTime + 0.5);
+            }, 600);
+        }
+
+        // Vibrate device
+        function vibrateDevice() {
+            if ('vibrate' in navigator) {
+                navigator.vibrate([200, 100, 200, 100, 200]);
+            }
+        }
+
+        // Keep screen awake (for supported devices)
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                }
+            } catch (err) {
+                console.log('Wake Lock not supported');
+            }
+        }
+
+        // Show fullscreen alert
+        function showFullscreenAlert(hero, message) {
+            const heroes = {
+                '🦇': '🦇',
+                '🕷️': '🕷️'
+            };
+            
+            document.getElementById('alertHero').textContent = hero.includes('Batman') ? '🦇' : '🕷️';
+            document.getElementById('alertTitle').textContent = hero;
+            document.getElementById('alertMessage').textContent = message;
+            document.getElementById('fullscreenAlert').classList.add('show');
+            
+            // Play sound and vibrate
+            playAlertSound();
+            vibrateDevice();
+        }
+
+        function dismissAlert() {
+            document.getElementById('fullscreenAlert').classList.remove('show');
+            addWater(); // Auto-log water when dismissed
+        }
 
         // Request notification permission
         async function requestNotificationPermission() {
@@ -611,22 +767,27 @@
                 
                 if (timeSinceLastWater >= 30) {
                     const heroes = [
-                        { name: "🦇 Batman", msg: "30 minutes without water! The Dark Knight needs you hydrated!" },
-                        { name: "🕷️ Spider-Man", msg: "Hey! It's been 30 minutes! Time for some H2O, web-head!" },
-                        { name: "🦇 Batman", msg: "Water alert! 30 minutes have passed. Drink up, hero!" },
-                        { name: "🕷️ Spider-Man", msg: "Your Spidey-sense is tingling! You need water NOW!" }
+                        { name: "🦇 BATMAN ALERT!", msg: "30 minutes without water! The Dark Knight needs you hydrated!" },
+                        { name: "🕷️ SPIDER-MAN ALERT!", msg: "Hey! It's been 30 minutes! Time for some H2O, web-head!" },
+                        { name: "🦇 BATMAN CALLING!", msg: "Water alert! 30 minutes have passed. Drink up, hero!" },
+                        { name: "🕷️ SPIDEY SENSE!", msg: "Your Spidey-sense is tingling! You need water NOW!" }
                     ];
                     
                     const randomHero = heroes[Math.floor(Math.random() * heroes.length)];
                     
-                    // Send browser notification
-                    sendBrowserNotification(
-                        randomHero.name + ' - Water Alert!',
-                        randomHero.msg,
-                        '💧'
-                    );
+                    // Try browser notification first (works on Android/Desktop)
+                    if (notificationsEnabled && Notification.permission === 'granted') {
+                        sendBrowserNotification(
+                            randomHero.name,
+                            randomHero.msg,
+                            '💧'
+                        );
+                    }
                     
-                    // Show in-app notification
+                    // Always show fullscreen alert (works on iPhone!)
+                    showFullscreenAlert(randomHero.name, randomHero.msg);
+                    
+                    // Show in-app notification too
                     showNotification(randomHero.name, randomHero.msg);
                     
                     // Reset timer after reminding
@@ -644,23 +805,33 @@
                 showNotification('⚠️ Alert', 'Please enter both username and email!');
                 return;
             }
+
+            // Initialize audio on user interaction (required for iOS)
+            initAudio();
             
             // Request notification permission
             const permitted = await requestNotificationPermission();
             
+            // Request wake lock to keep screen active
+            await requestWakeLock();
+            
+            isLoggedIn = true;
+            document.getElementById('loginModal').classList.add('hidden');
+            document.getElementById('userInfo').classList.add('show');
+            document.getElementById('displayUsername').textContent = username;
+            
+            // Start water reminder
+            lastWaterTime = Date.now();
+            startWaterReminder();
+            
+            let welcomeMsg = `Welcome ${username}! Water alerts activated! `;
+            welcomeMsg += permitted ? 'Push notifications enabled for Android/Desktop. ' : '';
+            welcomeMsg += 'iPhone users will get fullscreen alerts with sound & vibration!';
+            
+            showNotification('🦸‍♂️ Welcome!', welcomeMsg);
+            
+            // Send test notification
             if (permitted) {
-                isLoggedIn = true;
-                document.getElementById('loginModal').classList.add('hidden');
-                document.getElementById('userInfo').classList.add('show');
-                document.getElementById('displayUsername').textContent = username;
-                
-                // Start water reminder
-                lastWaterTime = Date.now();
-                startWaterReminder();
-                
-                showNotification('🦸‍♂️ Welcome!', `Welcome ${username}! Water notifications activated! We'll remind you every 30 minutes.`);
-                
-                // Send test notification
                 setTimeout(() => {
                     sendBrowserNotification(
                         '🦇 Batman - System Check',
@@ -668,8 +839,6 @@
                         '💧'
                     );
                 }, 2000);
-            } else {
-                showNotification('⚠️ Permission Needed', 'Please allow notifications to enable water reminders!');
             }
         }
 
